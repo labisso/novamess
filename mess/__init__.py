@@ -6,7 +6,6 @@ from kombu.messaging import Consumer
 from kombu.pools import connections, producers
 from kombu.entity import Queue, Exchange
 
-from gevent.event import AsyncResult
 import sys
 
 class Mess(object):
@@ -43,12 +42,10 @@ class Mess(object):
             # I think this can be done without gevent directly, but need to
             # learn more about kombu first
 
-            async_result = AsyncResult()
+            messages = []
+
             def _callback(body, message):
-                if body.get('error'):
-                    async_result.set_exception(Exception(*body['error']))
-                else:
-                    async_result.set(body.get('result'))
+                messages.append(body)
                 message.ack()
 
             consumer = Consumer(channel=channel, queues=[queue],
@@ -61,10 +58,14 @@ class Mess(object):
                 producer.publish(d, routing_key=name, headers=headers)
 
             with consumer:
-                while not async_result.ready():
-                    conn.drain_events()
+                # only expecting one event
+                conn.drain_events()
 
-            return async_result.get()
+            msg_body = messages[0]
+            if msg_body.get('error'):
+                raise Exception(*msg_body['error'])
+            else:
+                return msg_body.get('result')
 
     def reply(self, msg_id, body):
         with producers[self._conn].acquire(block=True) as producer:
