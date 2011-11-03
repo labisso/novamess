@@ -15,7 +15,9 @@ Files::
 Example Usage
 =============
 
-There is a simple service that sends out heartbeats to subscribers.
+There is a simple service that sends out heartbeats to subscribers. There are
+implementations using both the modified novarpc (novamess) and the custom thing
+based on kombu (mess).
 
 1. Make a virtualenv and activate it
 
@@ -23,12 +25,20 @@ There is a simple service that sends out heartbeats to subscribers.
 
    $ pip install kombu gevent
 
-3. Run the heartbeater service::
+3. Run one of the heartbeater services::
 
-   $ python heartbeater.py
+   $ python nova_heartbeater.py
 
-4. In another terminal, start the subscriber::
+   # OR
 
-   $ python subscriber.py
+   $ python mess_heartbeater.py
+
+4. In another terminal, start the appropriate subscriber::
+
+   $ python nova_subscriber.py
+
+   # OR
+
+   $ python mess_subscriber.py
 
 
