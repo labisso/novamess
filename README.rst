@@ -23,22 +23,18 @@ based on kombu (mess).
 
 2. Install dependencies::
 
-   $ pip install kombu gevent
+    $ pip install kombu gevent
 
 3. Run one of the heartbeater services::
 
-   $ python nova_heartbeater.py
-
-   # OR
-
-   $ python mess_heartbeater.py
+    $ python nova_heartbeater.py
+    # OR
+    $ python mess_heartbeater.py
 
 4. In another terminal, start the appropriate subscriber::
 
-   $ python nova_subscriber.py
-
-   # OR
-
-   $ python mess_subscriber.py
+    $ python nova_subscriber.py
+    # OR
+    $ python mess_subscriber.py
 
 
