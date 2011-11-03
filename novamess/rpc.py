@@ -25,24 +25,33 @@ import traceback
 import types
 import uuid
 
-import eventlet
-from eventlet import greenpool
-from eventlet import pools
+import logging as LOG
+
+import gevent
+import gevent.pool
 import greenlet
 
-from nova import context
-from nova import exception
-from nova import flags
-from nova.rpc.common import RemoteError, LOG
+# hardcode flags til we figure out a config system
+class _flags(object):
+    rabbit_host = "localhost"
+    rabbit_port = 5672
+    rabbit_userid = "guest"
+    rabbit_password = "guest"
+    rabbit_virtual_host = "/"
+    rabbit_retry_interval = 1
+    rabbit_retry_backoff = 2
+    rabbit_max_retries = 0
+    rabbit_durable_queues = False
+    fake_rabbit = False
+    rpc_conn_pool_size = 30
+    rpc_thread_pool_size = 1
+    control_exchange = "novamess"
 
-# Needed for tests
-eventlet.monkey_patch()
-
-FLAGS = flags.FLAGS
+FLAGS = _flags()
 
 
 class ConsumerBase(object):
-    """Consumer base class."""
+    """Consumer base class."""  
 
     def __init__(self, channel, callback, tag, **kwargs):
         """Declare a queue on an amqp channel.
@@ -343,11 +352,11 @@ class Connection(object):
             # ahead and exit in this case.
             err_str = str(e)
             max_retries = self.max_retries
-            LOG.error(_('Unable to connect to AMQP server '
-                    'after %(max_retries)d tries: %(err_str)s') % locals())
+            LOG.error('Unable to connect to AMQP server '
+                    'after %(max_retries)d tries: %(err_str)s' % locals())
             sys.exit(1)
-        LOG.info(_('Connected to AMQP server on %(hostname)s:%(port)d' %
-                self.params))
+        LOG.info('Connected to AMQP server on %(hostname)s:%(port)d' %
+                self.params)
         self.channel = self.connection.channel()
         # work around 'memory' transport bug in 1.1.3
         if self.memory_transport:
@@ -355,7 +364,7 @@ class Connection(object):
         for consumer in self.consumers:
             consumer.reconnect(self.channel)
         if self.consumers:
-            LOG.debug(_("Re-established AMQP queues"))
+            LOG.debug("Re-established AMQP queues")
 
     def get_channel(self):
         """Convenience call for bin/clear_rabbit_queues"""
@@ -366,9 +375,9 @@ class Connection(object):
         info = self.params.copy()
         info['intv'] = interval
         info['e'] = exc
-        LOG.error(_('AMQP server on %(hostname)s:%(port)d is'
+        LOG.error('AMQP server on %(hostname)s:%(port)d is'
                 ' unreachable: %(e)s. Trying again in %(intv)d'
-                ' seconds.') % info)
+                ' seconds.' % info)
 
     def close(self):
         """Close/release this connection"""
@@ -410,8 +419,8 @@ class Connection(object):
                         raise StopIteration
                     yield self.connection.drain_events()
             except self.connection.connection_errors, e:
-                LOG.exception(_('Failed to consume message from queue: '
-                        '%s' % str(e)))
+                LOG.exception('Failed to consume message from queue: '
+                        '%s' % str(e))
                 self.reconnect()
 
     def cancel_consumer_thread(self):
@@ -433,7 +442,7 @@ class Connection(object):
                 publisher.send(msg)
                 return
             except self.connection.connection_errors, e:
-                LOG.exception(_('Failed to publish message %s' % str(e)))
+                LOG.exception('Failed to publish message %s' % str(e))
                 try:
                     self.reconnect()
                     if publisher:
@@ -485,7 +494,7 @@ class Connection(object):
             except greenlet.GreenletExit:
                 return
         if self.consumer_thread is None:
-            self.consumer_thread = eventlet.spawn(_consumer_thread)
+            self.consumer_thread = gevent.spawn(_consumer_thread)
         return self.consumer_thread
 
     def create_consumer(self, topic, proxy, fanout=False):
@@ -496,20 +505,20 @@ class Connection(object):
             self.declare_topic_consumer(topic, ProxyCallback(proxy))
 
 
-class Pool(pools.Pool):
-    """Class that implements a Pool of Connections."""
-
-    # TODO(comstud): Timeout connections not used in a while
-    def create(self):
-        LOG.debug('Pool creating new connection')
-        return Connection()
-
-# Create a ConnectionPool to use for RPC calls.  We'll order the
-# pool as a stack (LIFO), so that we can potentially loop through and
-# timeout old unused connections at some point
-ConnectionPool = Pool(
-        max_size=FLAGS.rpc_conn_pool_size,
-        order_as_stack=True)
+#class Pool(pools.Pool):
+#    """Class that implements a Pool of Connections."""
+#
+#    # TODO(comstud): Timeout connections not used in a while
+#    def create(self):
+#        LOG.debug('Pool creating new connection')
+#        return Connection()
+#
+## Create a ConnectionPool to use for RPC calls.  We'll order the
+## pool as a stack (LIFO), so that we can potentially loop through and
+## timeout old unused connections at some point
+#ConnectionPool = Pool(
+#        max_size=FLAGS.rpc_conn_pool_size,
+#        order_as_stack=True)
 
 
 class ConnectionContext(object):
@@ -582,7 +591,7 @@ class ProxyCallback(object):
 
     def __init__(self, proxy):
         self.proxy = proxy
-        self.pool = greenpool.GreenPool(FLAGS.rpc_thread_pool_size)
+        self.pool = gevent.pool.Pool(FLAGS.rpc_thread_pool_size)
 
     def __call__(self, message_data):
         """Consumer callback to call a method on a proxy object.
@@ -597,17 +606,18 @@ class ProxyCallback(object):
         Example: {'method': 'echo', 'args': {'value': 42}}
 
         """
-        LOG.debug(_('received %s') % message_data)
+        print 'received %s' % message_data
+        LOG.debug('received %s' % message_data)
         ctxt = _unpack_context(message_data)
         method = message_data.get('method')
         args = message_data.get('args', {})
         if not method:
-            LOG.warn(_('no method for message: %s') % message_data)
-            ctxt.reply(_('No method for message: %s') % message_data)
+            LOG.warn('no method for message: %s' % message_data)
+            ctxt.reply('No method for message: %s' % message_data)
             return
-        self.pool.spawn_n(self._process_data, ctxt, method, args)
+        self.pool.spawn(self._process_data, ctxt, method, args)
 
-    @exception.wrap_exception()
+    #@exception.wrap_exception()
     def _process_data(self, ctxt, method, args):
         """Thread that maigcally looks for a method on the proxy
         object and calls it.
@@ -643,7 +653,7 @@ def _unpack_context(msg):
             value = msg.pop(key)
             context_dict[key[9:]] = value
     context_dict['msg_id'] = msg.pop('_msg_id', None)
-    LOG.debug(_('unpacked context: %s'), context_dict)
+    LOG.debug('unpacked context: %s', context_dict)
     return RpcContext.from_dict(context_dict)
 
 
@@ -660,17 +670,42 @@ def _pack_context(msg, context):
                       for (key, value) in context.to_dict().iteritems()])
     msg.update(context_d)
 
+class RemoteError(Exception):
+    """Signifies that a remote class has raised an exception.
 
-class RpcContext(context.RequestContext):
+    Containes a string representation of the type of the original exception,
+    the value of the original exception, and the traceback.  These are
+    sent to the parent as a joined string so printing the exception
+    contains all of the relevent info.
+
+    """
+    message = "Remote error: %(exc_type)s %(value)s\n%(traceback)s."
+
+    def __init__(self, exc_type=None, value=None, traceback=None):
+        self.exc_type = exc_type
+        self.value = value
+        self.traceback = traceback
+        super(RemoteError, self).__init__(**self.__dict__)
+
+class RpcContext(object):
     """Context that supports replying to a rpc.call"""
-    def __init__(self, *args, **kwargs):
+    def __init__(self, **kwargs):
         msg_id = kwargs.pop('msg_id', None)
         self.msg_id = msg_id
-        super(RpcContext, self).__init__(*args, **kwargs)
+        # avoid using nova context object now without changing the model
+        for k,v in kwargs.iteritems():
+            self.__dict__[k] = v
 
     def reply(self, *args, **kwargs):
         if self.msg_id:
             msg_reply(self.msg_id, *args, **kwargs)
+
+    def to_dict(self):
+        return self.__dict__.copy()
+
+    @classmethod
+    def from_dict(cls, values):
+        return cls(**values)
 
 
 class MulticallWaiter(object):
@@ -718,13 +753,13 @@ def multicall(context, topic, msg):
     # that will continue to use the connection.  When it's done,
     # connection.close() will get called which will put it back into
     # the pool
-    LOG.debug(_('Making asynchronous call on %s ...'), topic)
+    LOG.debug('Making asynchronous call on %s ...', topic)
     msg_id = uuid.uuid4().hex
     msg.update({'_msg_id': msg_id})
-    LOG.debug(_('MSG_ID is %s') % (msg_id))
+    LOG.debug('MSG_ID is %s' % (msg_id))
     _pack_context(msg, context)
 
-    conn = ConnectionContext()
+    conn = ConnectionContext(pooled=False) #TODO need a pool
     wait_msg = MulticallWaiter(conn)
     conn.declare_direct_consumer(msg_id, wait_msg)
     conn.topic_send(topic, msg)
@@ -743,17 +778,17 @@ def call(context, topic, msg):
 
 def cast(context, topic, msg):
     """Sends a message on a topic without waiting for a response."""
-    LOG.debug(_('Making asynchronous cast on %s...'), topic)
+    LOG.debug('Making asynchronous cast on %s...', topic)
     _pack_context(msg, context)
-    with ConnectionContext() as conn:
+    with ConnectionContext(False) as conn: #TODO pooled
         conn.topic_send(topic, msg)
 
 
 def fanout_cast(context, topic, msg):
     """Sends a message on a fanout exchange without waiting for a response."""
-    LOG.debug(_('Making asynchronous fanout cast...'))
+    LOG.debug('Making asynchronous fanout cast...')
     _pack_context(msg, context)
-    with ConnectionContext() as conn:
+    with ConnectionContext(False) as conn: #TODO pooled
         conn.fanout_send(topic, msg)
 
 
@@ -763,11 +798,11 @@ def msg_reply(msg_id, reply=None, failure=None):
     Failure should be a sys.exc_info() tuple.
 
     """
-    with ConnectionContext() as conn:
+    with ConnectionContext(False) as conn: #TODO pooled 
         if failure:
             message = str(failure[1])
             tb = traceback.format_exception(*failure)
-            LOG.error(_("Returning exception %s to caller"), message)
+            LOG.error("Returning exception %s to caller", message)
             LOG.error(tb)
             failure = (failure[0].__name__, str(failure[1]), tb)
 

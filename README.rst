@@ -9,3 +9,25 @@ messaging library. Initial code from nova was copied from::
 
 Files::
     nova/rpc/impl_kombu.py
+
+
+Example Usage
+=============
+
+There is a simple service that sends out heartbeats to subscribers.
+
+1. Make a virtualenv and activate it
+
+2. Install dependencies::
+
+   $ pip install kombu gevent
+
+3. Run the heartbeater service::
+
+   $ python heartbeater.py
+
+4. In another terminal, start the subscriber::
+
+   $ python subscriber.py
+
+
