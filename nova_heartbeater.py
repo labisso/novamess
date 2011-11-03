@@ -25,8 +25,6 @@ class HeartbeatService(object):
         #blocking
         self.conn.consume()
 
-        
-
     def subscribe(self, context, subscriber):
         print "Got subscription: subscriber=%s" % subscriber
         self.subscribers.append(subscriber)

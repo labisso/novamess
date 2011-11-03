@@ -8,6 +8,7 @@ messaging library. Initial code from nova was copied from::
     Wed Nov 2 15:44:31 2011 +0000
 
 Files::
+
     nova/rpc/impl_kombu.py
 
 
