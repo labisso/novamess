@@ -71,7 +71,7 @@ class Mess(object):
         with producers[self._conn].acquire(block=True) as producer:
             producer.publish(body, routing_key=msg_id)
 
-    def register_op(self, op, opname=None):
+    def handle(self, op, opname=None):
         if not self._consumer:
             self._consumer_conn = connections[self._conn].acquire()
             self._consumer = MessConsumer(self, self._consumer_conn,

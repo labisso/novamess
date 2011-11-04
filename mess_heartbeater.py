@@ -19,7 +19,9 @@ class HeartbeatService(object):
 
     def start(self):
         self.mess = mess.Mess(self.topic, "amqp://guest:guest@127.0.0.1//", "mess")
-        self.mess.register_op(self.subscribe)
+
+        # support the "subscribe" operation with this method
+        self.mess.handle(self.subscribe)
 
         gevent.spawn(self.mess.consume)
         gevent.spawn(self._beater).join()

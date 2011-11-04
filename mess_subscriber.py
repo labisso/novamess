@@ -16,7 +16,7 @@ class HeartbeatSubscriber(object):
 
     def start(self):
         self.mess = mess.Mess(self.topic, "amqp://guest:guest@127.0.0.1//", "mess")
-        self.mess.register_op(self.heartbeat)
+        self.mess.handle(self.heartbeat)
         consumer = gevent.spawn(self.mess.consume)
 
         # send subscribe request
